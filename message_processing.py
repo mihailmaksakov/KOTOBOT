@@ -3,7 +3,7 @@ import re
 from dostoevsky.tokenization import RegexTokenizer
 from dostoevsky.models import FastTextSocialNetworkModel
 
-from pyaspeller import Word
+from yaspellerextension import YandexSpellerExt
 
 from obscene_words_filter.conf import bad_words, good_words
 from obscene_words_filter.regexp import build_good_phrase, build_bad_phrase
@@ -57,35 +57,28 @@ def raw_message_to_string(message_text):
         return ''
 
 
-def normalize_string(text):
+def normalize_string(text, sql_c):
 
-    soup = BeautifulSoup(text.lower(), features="html.parser")
-
-    __string = soup.get_text()
-    __string = clean_typos(__string)
+    # soup = BeautifulSoup(text.lower(), features="html.parser")
+    #
+    # __string = soup.get_text()
+    __string = text
     __string = re.sub(r'http[s]?://[\w\-_.=\&\?/]+', ' _httpref_ ', __string)
-    __string = re.sub(r'[\w\-_]+@[\w\-_.]+', ' _emailref_ ', __string)
+    __string = re.sub(r'[\w\-_]+@[\w\-_.]+.[\w\-_]+', ' _emailref_ ', __string)
     __string = re.sub(r'[^а-яА-Яa-zA-Z0-9_\'\-’]+', ' ', __string)
-    __string = re.sub(r'\s\d+\s', ' _number_ ', __string)
+    __string = re.sub(r'\s?\d+\s', ' _number_ ', __string)
     __string = re.sub(TELEGRAM_USER_REF_RE, ' _userref_ ', __string)
     # <a href= "tg://user?id=829112612">Roman</a>
+    __string = clean_typos(__string, sql_c)
 
     # parse_result = ' '.join([lemmatizer.lemmatize(word, tag_dict.get(tag[0], wordnet.NOUN)) for word, tag in pos_tag(__string.split())])
 
     return __string
 
 
-def clean_typos(text):
-    result = []
-    for w in text.split():
-        check = Word(w)
-        if check.correct \
-                or len(check.variants) == 0:
-            result.append(w)
-        else:
-            result.append(check.variants[0])
-
-    return ' '.join(result)
+def clean_typos(text, sql_c):
+    __string = re.sub(r'ё', 'е', text)
+    return YandexSpellerExt(sql_c).clean_typos(__string)
 
 
 def content_is_empty(content):
@@ -120,27 +113,26 @@ def get_sentiment(text):
 
     results = model.predict([text], k=2)
     result = 0
-    # result = result + 0.5*(results[0]['neutral'] if 'neutral' in results[0] else 0)
-    result = result + (results[0]['positive'] if 'positive' in results[0] else 0)
-    result = result - (results[0]['negative'] if 'negative' in results[0] else 0)
+    result = result + (min(results[0]['positive'], 1) if 'positive' in results[0] else 0)
+    result = result - (min(results[0]['negative'], 1) if 'negative' in results[0] else 0)
 
-    return (result + 1) * 10
+    return round((result + 1) * 5)
 
 
 def other_user_similarity(text):
-    return -1
+    return 0
 
 
 def get_message_topic(text, sql_communicator):
     return ''
 
 
-def get_message_recipient(text, reply_to_message_id, sql_communicator):
+def get_message_recipient(text, reply_to_message_id, sql_c):
 
     result = 0
 
-    if reply_to_message_id:
-        result = sql_communicator.get_user_id_by_message_id(reply_to_message_id)
+    if not np.isnan(reply_to_message_id) and reply_to_message_id:
+        result = sql_c.get_user_id_by_message_id(reply_to_message_id)
     if not result:
         re_result = re.match(TELEGRAM_USER_REF_RE, text)
         if re_result:

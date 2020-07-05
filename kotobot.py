@@ -5,7 +5,7 @@ import os
 import signal
 # import time
 # import re
-# from datetime import timedelta
+from datetime import timedelta
 from time import sleep, time, ctime
 
 from sqlcommunicator import SQLCommunicator
@@ -44,7 +44,7 @@ MAX_IMAGE_SIZE = pow(2, 24)
 sql_communicator = SQLCommunicator('localhost', 'kotoboto', 'root')
 
 SIG_EXIT = 0
-NEW_MESSAGES_PROCESSING_PERIOD = 60*60
+NEW_MESSAGES_PROCESSING_PERIOD = 60*1
 USER_SIMILARITY_MODEL_UDPATE_PERIOD = 60*60*6
 
 
@@ -171,15 +171,15 @@ def process_messages_job():
 
     # select uprocessed messages from raw_data_processing table
     try:
-        result = sql_communicator_job.prepare_raw_messages_for_processing()
+        data = sql_communicator_job.prepare_raw_messages_for_processing(100)
     except SQLCommunicatorError as e:
         logger.error(e)
         return
 
-    if result:
+    if not data.empty:
 
-        data = pd.DataFrame(result['records'])
-        data.columns = result['columns']
+        # data = pd.DataFrame(result['records'])
+        # data.columns = result['columns']
 
         temp_aggregated_data_indeces = []
 
@@ -226,23 +226,23 @@ def process_messages_job():
         aggregated_data = pd.DataFrame(data=aggregated_data_list)
 
         processed_data_indeces = pd.DataFrame({'raw_chat_data_id': data['id'],
-                                               'processed_data_id': pd.Series(temp_aggregated_data_indeces)})
+                                               'temp_id': pd.Series(temp_aggregated_data_indeces)})
 
     # fill in analysis criteria for every whole message
     processed_chat_data = []
     for index, single_message_data in aggregated_data.iterrows():
 
-        message_text = single_message_data['message_text']
+        message_text = single_message_data['message_text'].lower()
         message_recipient = mp.get_message_recipient(message_text, single_message_data['reply_to_message_id'],
                                                      sql_communicator_job)
 
-        message_text_wo_typos = mp.clean_typos(message_text)
-        message_text_processed = mp.normalize_string(message_text)
+        # message_text_wo_typos = mp.clean_typos(message_text, sql_communicator_job)
+        message_text_processed = mp.normalize_string(message_text, sql_communicator_job)
 
         processed_chat_data.append({
-            'id': index,
+            'temp_id': index,
             'obscene_terms_count': mp.get_obscene_terms_count(message_text),
-            'sentiment': mp.get_sentiment(message_text_wo_typos),
+            'sentiment': mp.get_sentiment(message_text_processed),
             'other_user_similarity': mp.other_user_similarity(message_text_processed),
             'contains_text': mp.content_is_empty(message_text),
             'contains_sticker': mp.content_is_empty(single_message_data['sticker']),
@@ -258,7 +258,9 @@ def process_messages_job():
 
     processed_chat_data_df = pd.DataFrame(data=processed_chat_data)
 
-    sql_communicator_job.disconnect()
+    sql_communicator_job.write_processed_messages(processed_chat_data_df, processed_data_indeces)
+
+    # sql_communicator_job.disconnect()
 
     sleep(NEW_MESSAGES_PROCESSING_PERIOD)
 
@@ -271,9 +273,9 @@ def update_user_similarity_model():
         mp.UserDetector().update_model(sql_communicator_job)
     except SQLCommunicatorError as e:
         logger.error(e)
-        return
-    finally:
-        sql_communicator_job.disconnect()
+        # return
+    # finally:
+        # sql_communicator_job.disconnect()
 
     sleep(USER_SIMILARITY_MODEL_UDPATE_PERIOD)
 
@@ -300,7 +302,7 @@ def main(args):
     for sig in (signal.SIGBREAK, signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, on_stop)
 
-    # jobs_array.append(jobs.Job(interval=timedelta(seconds=jobs.JOBS_WAIT_TIME_SECONDS), execute=process_messages_job))
+    jobs_array.append(jobs.Job(interval=timedelta(seconds=jobs.JOBS_WAIT_TIME_SECONDS), execute=process_messages_job))
 
     for job in jobs_array:
         job.start()
