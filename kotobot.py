@@ -24,6 +24,7 @@ import jobs
 
 import message_processing as mp
 import image_processing as ip
+from userdetector import UserDetector
 
 logging.basicConfig(filename="kotobot.log", format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     level=logging.INFO)
@@ -44,7 +45,7 @@ MAX_IMAGE_SIZE = pow(2, 24)
 sql_communicator = SQLCommunicator('localhost', 'kotoboto', 'root')
 
 SIG_EXIT = 0
-NEW_MESSAGES_PROCESSING_PERIOD = 60*1
+NEW_MESSAGES_PROCESSING_PERIOD = 60*60*6
 USER_SIMILARITY_MODEL_UDPATE_PERIOD = 60*60*6
 
 
@@ -228,54 +229,46 @@ def process_messages_job():
         processed_data_indeces = pd.DataFrame({'raw_chat_data_id': data['id'],
                                                'temp_id': pd.Series(temp_aggregated_data_indeces)})
 
-    # fill in analysis criteria for every whole message
-    processed_chat_data = []
-    for index, single_message_data in aggregated_data.iterrows():
+        # fill in analysis criteria for every whole message
+        processed_chat_data = []
+        for index, single_message_data in aggregated_data.iterrows():
 
-        message_text = single_message_data['message_text'].lower()
-        message_recipient = mp.get_message_recipient(message_text, single_message_data['reply_to_message_id'],
-                                                     sql_communicator_job)
+            message_text = single_message_data['message_text'].lower()
+            message_recipient = mp.get_message_recipient(message_text, single_message_data['reply_to_message_id'],
+                                                         sql_communicator_job)
 
-        # message_text_wo_typos = mp.clean_typos(message_text, sql_communicator_job)
-        message_text_processed = mp.normalize_string(message_text, sql_communicator_job)
+            # message_text_wo_typos = mp.clean_typos(message_text, sql_communicator_job)
+            message_text_processed = mp.normalize_string(message_text, sql_communicator_job)
 
-        processed_chat_data.append({
-            'temp_id': index,
-            'obscene_terms_count': mp.get_obscene_terms_count(message_text),
-            'sentiment': mp.get_sentiment(message_text_processed),
-            'other_user_similarity': mp.other_user_similarity(message_text_processed),
-            'contains_text': mp.content_is_empty(message_text),
-            'contains_sticker': mp.content_is_empty(single_message_data['sticker']),
-            'contains_image': single_message_data['has_photo'] == 1,
-            'message_recipient': message_recipient,
-            'recipient_is_bot': SELF_NAME in message_text,
-            'topic': mp.get_message_topic(message_text_processed, sql_communicator_job),
-            'image_topic': ip.get_image_topic(single_message_data['has_photo'], single_message_data['photo']),
-            'image_adult': ip.image_contains_adult(single_message_data['has_photo'], single_message_data['photo']),
-            'message_text': message_text,
-            'message_text_processed': message_text_processed
-        })
+            processed_chat_data.append({
+                'temp_id': index,
+                'obscene_terms_count': mp.get_obscene_terms_count(message_text),
+                'sentiment': mp.get_sentiment(message_text_processed),
+                'other_user_similarity': mp.other_user_similarity(message_text_processed),
+                'contains_text': mp.content_is_empty(message_text),
+                'contains_sticker': mp.content_is_empty(single_message_data['sticker']),
+                'contains_image': single_message_data['has_photo'] == 1,
+                'message_recipient': message_recipient,
+                'recipient_is_bot': SELF_NAME in message_text,
+                'topic': mp.get_message_topic(message_text_processed, sql_communicator_job),
+                'image_topic': ip.get_image_topic(single_message_data['has_photo'], single_message_data['photo']),
+                'image_adult': ip.image_contains_adult(single_message_data['has_photo'], single_message_data['photo']),
+                'message_text': message_text,
+                'message_text_processed': message_text_processed
+            })
 
-    processed_chat_data_df = pd.DataFrame(data=processed_chat_data)
+        processed_chat_data_df = pd.DataFrame(data=processed_chat_data)
 
-    sql_communicator_job.write_processed_messages(processed_chat_data_df, processed_data_indeces)
+        sql_communicator_job.write_processed_messages(processed_chat_data_df, processed_data_indeces)
 
-    # sql_communicator_job.disconnect()
+        # sql_communicator_job.disconnect()
 
     sleep(NEW_MESSAGES_PROCESSING_PERIOD)
 
 
-def update_user_similarity_model():
+def update_user_detector_model():
 
-    sql_communicator_job = SQLCommunicator('localhost', 'kotoboto', 'root')
-
-    try:
-        mp.UserDetector().update_model(sql_communicator_job)
-    except SQLCommunicatorError as e:
-        logger.error(e)
-        # return
-    # finally:
-        # sql_communicator_job.disconnect()
+    UserDetector().update_model(SQLCommunicator('localhost', 'kotoboto', 'root'))
 
     sleep(USER_SIMILARITY_MODEL_UDPATE_PERIOD)
 
@@ -303,6 +296,7 @@ def main(args):
         signal.signal(sig, on_stop)
 
     jobs_array.append(jobs.Job(interval=timedelta(seconds=jobs.JOBS_WAIT_TIME_SECONDS), execute=process_messages_job))
+    jobs_array.append(jobs.Job(interval=timedelta(seconds=jobs.JOBS_WAIT_TIME_SECONDS), execute=update_user_detector_model))
 
     for job in jobs_array:
         job.start()
@@ -330,7 +324,7 @@ def main(args):
         sleep(1)
 
     updater.stop()
-    sql_communicator.disconnect()
+    # sql_communicator.disconnect()
     for job in jobs_array:
         job.stop()
     exit(0)

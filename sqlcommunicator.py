@@ -112,6 +112,7 @@ class TypoDictionary(Base):
     id = Column(Integer, primary_key=True)
     word = Column(String(100), index=True)
     correct_word = Column(String(100))
+    check = Column(mysqld.TINYINT)
 
     def __repr__(self):
         return f'<TypoDictionary({self.word} → {self.correct_word})>'
@@ -273,7 +274,20 @@ class SQLCommunicator:
 
     def get_all_processed_texts(self, date_limit=None):
 
-        return None
+        session = Session(bind=self._engine)
+
+        query = session.query(ProcessedMessage.message_text_processed, RawMessage.user_id)
+        query = query.join(RawMessageProcessingQueue,
+                           ProcessedMessage.id == RawMessageProcessingQueue.processed_data_id)
+        query = query.join(RawMessage,
+                           RawMessageProcessingQueue.raw_chat_data_id == RawMessage.id)
+        query = query.group_by(ProcessedMessage.message_text_processed, RawMessage.user_id)
+
+        res = pd.read_sql(query.statement, session.bind)
+
+        session.close()
+
+        return res
 
     # Typo dictionary communication {
 
@@ -289,7 +303,7 @@ class SQLCommunicator:
         else:
             return 0
 
-    def put_word_to_typo_d(self, word, correct_word):
+    def put_word_to_typo_d(self, word, correct_word, check=0):
 
         session = Session(bind=self._engine)
 
@@ -297,9 +311,9 @@ class SQLCommunicator:
 
         if res:
             session.query(TypoDictionary).filter(
-                TypoDictionary.id == res.id).update({'correct_word': correct_word})
+                TypoDictionary.id == res.id).update({'correct_word': correct_word, 'check': check})
         else:
-            new_word = TypoDictionary(word=word, correct_word=correct_word)
+            new_word = TypoDictionary(word=word, correct_word=correct_word, check=check)
             session.add(new_word)
 
         session.commit()

@@ -1,5 +1,7 @@
 import re
 
+import numpy as np
+
 from dostoevsky.tokenization import RegexTokenizer
 from dostoevsky.models import FastTextSocialNetworkModel
 
@@ -11,43 +13,9 @@ from obscene_words_filter.words_filter import ObsceneWordsFilter
 
 from bs4 import BeautifulSoup
 
-import numpy as np
-
-from sklearn import preprocessing
-from sklearn.svm import SVC
-from sklearn.model_selection import train_test_split, GridSearchCV
-from sklearn.model_selection import cross_val_score
-from sklearn.metrics import mean_squared_error
+from userdetector import UserDetector as ud
 
 TELEGRAM_USER_REF_RE = r'<a href="tg://user[\?]id=([\d]+)">[\w]+</a>'
-
-
-class UserDetector:
-
-    def __init__(self, model_dir='usersimilarity'):
-        self.model_file = model_dir + '/model.clf'
-
-    def update_model(self, sql_communicator):
-        # get all messages from sql
-        precessed_texts = sql_communicator.get_all_processed_texts()
-        # process messages
-
-        # learn model
-        print(self.model_file)
-        # write model to file
-        pass
-
-    # def init_clf(self):
-    #     X = np.empty((0,0))
-    #     y = np.empty((0))
-    #     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
-    #     return 1
-
-    def predict_user(self, text):
-        # process message
-        # read model from file or update model
-        # predict user
-        pass
 
 
 def raw_message_to_string(message_text):
@@ -120,6 +88,7 @@ def get_sentiment(text):
 
 
 def other_user_similarity(text):
+    user_detector = ud()
     return 0
 
 
@@ -131,7 +100,10 @@ def get_message_recipient(text, reply_to_message_id, sql_c):
 
     result = 0
 
-    if not np.isnan(reply_to_message_id) and reply_to_message_id:
+    if not reply_to_message_id:
+        return result
+
+    if not np.isnan(reply_to_message_id):
         result = sql_c.get_user_id_by_message_id(reply_to_message_id)
     if not result:
         re_result = re.match(TELEGRAM_USER_REF_RE, text)

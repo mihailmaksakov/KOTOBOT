@@ -10,8 +10,8 @@ class YandexSpellerExt:
     def check_dict(self, word):
         return self.sqlc.get_word_from_typo_d(word=word)
 
-    def update_dict(self, word, correct_word):
-        return self.sqlc.put_word_to_typo_d(word=word, correct_word=correct_word)
+    def update_dict(self, word, correct_word, check=0):
+        return self.sqlc.put_word_to_typo_d(word=word, correct_word=correct_word, check=check)
 
     def clean_typos(self, text):
 
@@ -43,4 +43,4 @@ if __name__ == '__main__':
 
     from special_words_import import special_words
     for k, v in special_words.items():
-        ys.update_dict(k, v)
+        ys.update_dict(k, v, 1)
