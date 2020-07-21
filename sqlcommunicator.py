@@ -9,7 +9,7 @@ from sqlalchemy.orm import relationship
 
 Base = declarative_base()
 
-from sqlalchemy import Column, Integer, BINARY, String, ForeignKey, DATETIME
+from sqlalchemy import Column, Integer, BINARY, String, ForeignKey, DATETIME, func
 from sqlalchemy.dialects import mysql as mysqld
 
 from sqlalchemy.exc import SQLAlchemyError
@@ -90,6 +90,7 @@ class ProcessedMessage(Base):
     image_adult = Column(mysqld.TINYINT)
     message_text = Column(mysqld.MEDIUMTEXT)
     message_text_processed = Column(mysqld.MEDIUMTEXT)
+    typos_count = Column(Integer)
 
     temp_id = 0
 
@@ -260,6 +261,18 @@ class SQLCommunicator:
         session.commit()
         session.close()
 
+    def get_users(self):
+
+        session = Session(bind=self._engine)
+
+        query = session.query(User.id, User.user_id)
+
+        res = pd.read_sql(query.statement, session.bind)
+
+        session.close()
+
+        return res
+
     def get_user_id_by_message_id(self, message_id):
 
         session = Session(bind=self._engine)
@@ -282,6 +295,23 @@ class SQLCommunicator:
         query = query.join(RawMessage,
                            RawMessageProcessingQueue.raw_chat_data_id == RawMessage.id)
         query = query.group_by(ProcessedMessage.message_text_processed, RawMessage.user_id)
+
+        res = pd.read_sql(query.statement, session.bind)
+
+        session.close()
+
+        return res
+
+    def get_all_processed_data(self, date_limit=None):
+
+        session = Session(bind=self._engine)
+
+        query = session.query(ProcessedMessage, RawMessage.user_id, func.max(RawMessage.date_time).label("date_time"))
+        query = query.join(RawMessageProcessingQueue,
+                           ProcessedMessage.id == RawMessageProcessingQueue.processed_data_id)
+        query = query.join(RawMessage,
+                           RawMessageProcessingQueue.raw_chat_data_id == RawMessage.id)
+        query = query.group_by(ProcessedMessage, RawMessage.user_id)
 
         res = pd.read_sql(query.statement, session.bind)
 

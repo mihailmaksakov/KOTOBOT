@@ -11,6 +11,8 @@ from obscene_words_filter.conf import bad_words, good_words
 from obscene_words_filter.regexp import build_good_phrase, build_bad_phrase
 from obscene_words_filter.words_filter import ObsceneWordsFilter
 
+import pymorphy2
+
 from bs4 import BeautifulSoup
 
 from userdetector import UserDetector as ud
@@ -25,28 +27,34 @@ def raw_message_to_string(message_text):
         return ''
 
 
-def normalize_string(text, sql_c):
+def normalize_string(text, sql_c, lemmatize=True):
 
-    # soup = BeautifulSoup(text.lower(), features="html.parser")
-    #
-    # __string = soup.get_text()
     __string = text
     __string = re.sub(r'http[s]?://[\w\-_.=\&\?/]+', ' _httpref_ ', __string)
     __string = re.sub(r'[\w\-_]+@[\w\-_.]+.[\w\-_]+', ' _emailref_ ', __string)
-    __string = re.sub(r'[^а-яА-Яa-zA-Z0-9_\'\-’]+', ' ', __string)
-    __string = re.sub(r'\s?\d+\s', ' _number_ ', __string)
+    __string = re.sub(r'[^а-яёЁА-Яa-zA-Z0-9_\'\-’]+', ' ', __string)
     __string = re.sub(TELEGRAM_USER_REF_RE, ' _userref_ ', __string)
     # <a href= "tg://user?id=829112612">Roman</a>
-    __string = clean_typos(__string, sql_c)
 
-    # parse_result = ' '.join([lemmatizer.lemmatize(word, tag_dict.get(tag[0], wordnet.NOUN)) for word, tag in pos_tag(__string.split())])
+    typos_count = 0
+    if lemmatize:
+        clean_text = clean_typos(__string, sql_c)
+        typos_count = len(list(w for w in __string.lower().split() if not w in clean_text.lower()))
+        __string = clean_text
+        __string = re.sub(r'[^а-яёЁА-Яa-zA-Z0-9_\'\-’]+', ' ', __string)
+        __string = re.sub(r'\s?\d+\s', ' _number_ ', __string)
+        __string = ' '.join([lemmatize_word(w) for w in __string.split()])
 
-    return __string
+    return __string, typos_count
+
+
+def lemmatize_word(word):
+    p = pymorphy2.MorphAnalyzer().parse(word)
+    return max(p, key=lambda x: x.score).normal_form if p else word
 
 
 def clean_typos(text, sql_c):
-    __string = re.sub(r'ё', 'е', text)
-    return YandexSpellerExt(sql_c).clean_typos(__string)
+    return YandexSpellerExt(sql_c).clean_typos(text)
 
 
 def content_is_empty(content):

@@ -45,7 +45,7 @@ MAX_IMAGE_SIZE = pow(2, 24)
 sql_communicator = SQLCommunicator('localhost', 'kotoboto', 'root')
 
 SIG_EXIT = 0
-NEW_MESSAGES_PROCESSING_PERIOD = 60*60*6
+NEW_MESSAGES_PROCESSING_PERIOD = 60
 USER_SIMILARITY_MODEL_UDPATE_PERIOD = 60*60*6
 
 
@@ -172,7 +172,7 @@ def process_messages_job():
 
     # select uprocessed messages from raw_data_processing table
     try:
-        data = sql_communicator_job.prepare_raw_messages_for_processing(100)
+        data = sql_communicator_job.prepare_raw_messages_for_processing(300)
     except SQLCommunicatorError as e:
         logger.error(e)
         return
@@ -238,7 +238,7 @@ def process_messages_job():
                                                          sql_communicator_job)
 
             # message_text_wo_typos = mp.clean_typos(message_text, sql_communicator_job)
-            message_text_processed = mp.normalize_string(message_text, sql_communicator_job)
+            message_text_processed, typos_count = mp.normalize_string(message_text, sql_communicator_job)
 
             processed_chat_data.append({
                 'temp_id': index,
@@ -254,7 +254,8 @@ def process_messages_job():
                 'image_topic': ip.get_image_topic(single_message_data['has_photo'], single_message_data['photo']),
                 'image_adult': ip.image_contains_adult(single_message_data['has_photo'], single_message_data['photo']),
                 'message_text': message_text,
-                'message_text_processed': message_text_processed
+                'message_text_processed': message_text_processed,
+                'typos_count': typos_count
             })
 
         processed_chat_data_df = pd.DataFrame(data=processed_chat_data)
@@ -296,7 +297,7 @@ def main(args):
         signal.signal(sig, on_stop)
 
     jobs_array.append(jobs.Job(interval=timedelta(seconds=jobs.JOBS_WAIT_TIME_SECONDS), execute=process_messages_job))
-    jobs_array.append(jobs.Job(interval=timedelta(seconds=jobs.JOBS_WAIT_TIME_SECONDS), execute=update_user_detector_model))
+    # jobs_array.append(jobs.Job(interval=timedelta(seconds=jobs.JOBS_WAIT_TIME_SECONDS), execute=update_user_detector_model))
 
     for job in jobs_array:
         job.start()
